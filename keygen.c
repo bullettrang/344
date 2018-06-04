@@ -83,11 +83,8 @@ int main(int argc, char*argv[]) {
 	for (i = 0; i < keylength; i++){
 		int randkey;
 		randkey = (rand() % (SPACEINDEX - AINDEX + 1)) + AINDEX;
-		/*printf("%d\t", randkey);*/
+
 		keyarr[i] = randkey;
-		//printf("%d\t",i);
-		//printf("%d\t",keyarr[i]);
-		//printf("\n");
 
 	}
 
@@ -97,7 +94,7 @@ int main(int argc, char*argv[]) {
 	writeToStdOut(output, keylength);
 	//free when done
 	free(keyarr);
-
+	free(output);
 
 }
 
