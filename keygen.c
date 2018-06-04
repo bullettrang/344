@@ -59,8 +59,15 @@ char* convertKeyIndexToChars(int * keys,int size) {
 
 void writeToStdOut(char* input,int size) {
 	void *newline = "\n";
-	write(STDOUT_FILENO, input, size);
-	write(STDOUT_FILENO, newline, 1);
+	//error checking
+	if (write(STDOUT_FILENO, input, size) == -1) {
+		fprintf(stderr, "error writing key to file\n");
+		exit(1);
+	}
+	if(write(STDOUT_FILENO, newline, 1)==-1){
+		fprintf(stderr, "error writing newline.\n");
+		exit(1);
+	}
 }
 int main(int argc, char*argv[]) {
 	//send rand
