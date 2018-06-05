@@ -9,6 +9,8 @@
 #include <sys/wait.h>		//waitpid, pid_t,WNOHANG
 #include <errno.h>
 #include <fcntl.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 //this program will run as daemon in background
 //upon execution, must output an error if it cannot be run due to a network error
 
@@ -107,54 +109,27 @@ void handle_sigchld(int sig) {
 *SOCKET FUNCTIONS
 *
 */
-struct addrinfo * addrinfoConstructor(char* port) {
-	int result;
 
-	struct addrinfo serv_addr;
-	struct addrinfo * res;
-
-	//zero out struct
-	bzero((char *)&serv_addr, sizeof(serv_addr));
-
-	serv_addr.ai_family = AF_INET;		//set what type
-	serv_addr.ai_socktype = SOCK_STREAM;		//we are using TCP
-												
-	serv_addr.ai_flags = AI_PASSIVE;			//set ai_flags to AI_PASSIVE so we can use it with bind and connect
-
-	result = getaddrinfo(NULL, port, &serv_addr, &res);
-
-	if (result != 0) {
-		fprintf(stderr, "Error, the port does not work.\n", gai_strerror(result));
-		exit(1);
-	}
-
-	return res;
-}
 
 //initialize socket
-int initSocket(struct addrinfo * res) {
+int initSocket() {
 	int sockfd;
 
-	sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+	 sockfd= socket(AF_INET, SOCK_STREAM, 0);
 
-	if (sockfd == -1) {
-		fprintf(stderr, "Error. socket initialization failed.\n");
-		exit(1);
-	}
+	 if (sockfd < 0) {
+		 error("ERROR opening socket");
+	 }
 	return sockfd;
 }
 
 
 //prepare server socket
-void serverSocketPrep(int sockfd, struct addrinfo *res) {
+void serverSocketPrep(int sockfd, struct sockaddr_in serverAddress) {
 
 	int bindResult;
-	bindResult = bind(sockfd, res->ai_addr, res->ai_addrlen);
-
-	if (bindResult == -1) {
-		close(sockfd);
-		fprintf(stderr, "Error binding socket \n");
-		exit(1);
+	if (bind(sockfd, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) {
+		error("ERROR on binding");
 	}
 
 	int listenResult;
@@ -177,17 +152,11 @@ void serverSocketPrep(int sockfd, struct addrinfo *res) {
 // runs like otp_enc_d 51002 &
 int main(int argc, char*argv[]) {
 
-	int portNum;
-	int sockfd;
-	int establishedConnectionFD;
-	int charsRead;
-	int socketConns[MAXPROCESSES];
-	socketCount = 0;
-	socklen_t sizeofClientInfo;
-	char buffer[256];
+	if (argc < 2) {
+		fprintf(stderr, "Make sure you enter a port #\n", argv[0]);
+		exit(1);
+	}
 
-	struct addrinfo*res;
-	struct sockaddr_storage otp_enc_addr;
 
 	//initialize signal stuff
 	/*
@@ -208,21 +177,32 @@ int main(int argc, char*argv[]) {
 	*
 	*/
 
+	int portNum;
+	int sockfd;
+	int establishedConnectionFD;
+	int charsRead;
+	int socketConns[MAXPROCESSES];
+
+	socklen_t sizeofClientInfo;
+	char buffer[256];
+	//sockaddr_in declarations and inits
+	struct sockaddr_in serverAddress, clientAddress;
+	//SOCKET INITS
+	memset((char*)&serverAddress, '\0', sizeof(serverAddress));
+	portNum = atoi(argv[1]);					//change char into int
+	serverAddress.sin_family = AF_INET;			//create a network capable socket
+	serverAddress.sin_port = htons(portNum);
+	serverAddress.sin_addr.s_addr = INADDR_ANY;
+	//END OF SOCKET INITS
+
+	sockfd = initSocket();
+
+
+	serverSocketPrep(sockfd, serverAddress);
 
 
 
-	if (argc < 2) {
-		fprintf(stderr, "Make sure you enter a port #\n", argv[0]);
-		exit(1);
-	}
 
-
-	portNum = atoi(argv[1]);
-	res = addrinfoConstructor(argv[1]);
-	sockfd = initSocket(res);
-
-	//data connection related stuff
-	serverSocketPrep(sockfd, res);
 
 
 
@@ -230,7 +210,7 @@ int main(int argc, char*argv[]) {
 
 
 	int listenStatus;
-	listenStatus = listen(listenSocketFD, 5);
+	listenStatus = listen(sockfd, 5);
 
 	//server runs forever
 	while (1) {
@@ -239,7 +219,7 @@ int main(int argc, char*argv[]) {
 		sizeofClientInfo = sizeof(clientAddress);
 
 		//accept incoming connections
-		establishedConnectionFD = accept(listenSocketFD, (struct sockaddr *)&clientAddress, &sizeofClientInfo);
+		establishedConnectionFD = accept(sockfd, (struct sockaddr *)&clientAddress, &sizeofClientInfo);
 		if (establishedConnectionFD < 0) {
 			error("ERROR on accept");
 		}//successful connection
@@ -247,29 +227,48 @@ int main(int argc, char*argv[]) {
 		else {
 			printf("accept connection successful\n");
 			fflush(stdout);
+			char message[500];
+			memset(message, '\0', sizeof(message));
+			int n;
+			//try to receive "otp_enc" so we know its the correct program
+			char*confirm = "otp_enc";
+			//n = read(establishedConnectionFD, message, sizeof(message));
 
-			spawnPid = fork();
-			switch (spawnPid)
-			{
-			case -1: {
-				perror("Hull Breach!\n");
-				exit(1);
-				break;
+			//n = write(establishedConnectionFD, returnMsg, strlen(returnMsg));
+			n = read(establishedConnectionFD, message, sizeof(message));
+			if (strcmp(message, confirm) == 0) {
+				printf("This is the right program\n");
+				fflush(stdout);
 			}
-					 //the child process of otp_enc_d must first check to make sure it is communicating with otp_enc
-			case 0: {//only in the child process the the actual encryption takes place
+			else {
+				printf("This is the wrong program\n");
+				fflush(stdout);
 
-
-				break;
-			}
-
-			default:
-			{
-				addPid(spawnPid);
-				break;
 			}
 
-			}
+			
+			//spawnPid = fork();
+			//switch (spawnPid)
+			//{
+			//	case -1: {
+			//		perror("Hull Breach!\n");
+			//		exit(1);
+			//		break;
+			//	}
+			//		 //the child process of otp_enc_d must first check to make sure it is communicating with otp_enc
+			//	case 0: {//only in the child process the the actual encryption takes place
+
+
+			//		break;
+			//	}
+
+			//	default:
+			//	{
+			//		addPid(spawnPid);
+			//		break;
+			//	}
+
+			//}//END OF SWITCH FORK
 		}
 
 	}
