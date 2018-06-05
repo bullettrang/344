@@ -171,63 +171,25 @@ int main(int argc, char*argv[]) {
 	printf("port is = %s\n\n", argv[3]);
 	//check plaintext file
 	plaintext_size=checkFile(plaintext,bufferPlainText);
-	//printf("%s\n", bufferPlainText);
+
 
 	//check keyfile
 	keytext_size = checkFile(keyfile, bufferKeyText);
-	//printf("%s\n", bufferKeyText);
-	printf("finish checking files\n");
-	fflush(stdout);
+
+
 
 	//compare keyfile and plaintextfile lengths
 	compareKeyAndPlainText(keytext_size, plaintext_size, keyfile);
-	printf("finish comparing files\n");
-	fflush(stdout);
 
+	socketFD = attemptConnection(server, argv[3]);
 
-
-	struct sockaddr_in serverAddress;
-	int sockfd;
-	int portNum;
-	char * localhost = "localhost";
-
-	memset((char*)&serverAddress, '\0', sizeof(serverAddress));
-	portNum = atoi(argv[3]);
-	serverAddress.sin_family = AF_INET; // Create a network-capable socket
-	serverAddress.sin_port = htons(portNum); // Store the port number
-	server = gethostbyname(localhost); // Convert the machine name into a special form of address
-	if (server == NULL) {
-		fprintf(stderr, "CLIENT: ERROR, no such host\n"); exit(0);
-	}
-	memcpy((char*)&serverAddress.sin_addr.s_addr, (char*)server->h_addr, server->h_length);
-
-	//create socket 
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	//check for error
-	if (sockfd < 0) {
-		error("ERROR creating socket");
-	}
-	printf("socket created\n");
-
-
-	printf("port assigned to portNum\n");
-	fflush(stdout);
-
-
-	//attempt connection
-	if (connect(sockfd, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 0) {
-		error("ERROR connecting");
-	}
-	printf("finish connecting \n");
-	fflush(stdout);
-	//END OF attempt connection
 
 
 	//send confirm to opt_enc_d.c
 	int n;
 
 	char*confirm = "otp_enc";
-	n = write(sockfd, confirm, strlen(confirm));
+	n = write(socketFD, confirm, strlen(confirm));
 	if (n < 0) {
 		error("WRITING TO SOCKET CREATED AN ERROR");
 	}
@@ -249,7 +211,7 @@ int main(int argc, char*argv[]) {
 	//close after sending msg
 	printf("closing socket\n");
 	fflush(stdout);
-	close(sockfd);
+	close(socketFD);
 
 
 	//printf("plaintext_size= %d\n\n", plaintext_size)
