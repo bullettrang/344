@@ -36,6 +36,14 @@
 #define TOTALFORKS 50
 #define BACKLOG 5
 #define TOTALCHARS 70002
+
+//ascii values
+#define LOWERASCII 65      //A
+#define HIGHERASCII 90		//Z
+#define SPACEASCII 32		//(space)
+
+#define SPACEINDEX 26
+#define AINDEX 0
 //pid data structure
 struct pidarray {
 	int pidcount;
@@ -47,7 +55,7 @@ struct pidarray {
 struct sigaction SIGCHLD_action;
 struct pidarray pstack;
 int numforks;
-
+char*legalchars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ ";
 
 void pidConstructor() {
 	pstack.pidcount = 0;
@@ -100,6 +108,7 @@ int generateNewPort() {
 
 
 //this signal will reap children processes
+//SOURCE http://beej.us/net2/bgnet.html
 void handle_sigchld(int sig) {
 	int saved_errno = errno;
 	pid_t dead;
@@ -170,7 +179,8 @@ void *get_in_addr(struct sockaddr *sa)
 
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
-//from BEEJ GUIDE
+
+//SOURCE http://beej.us/net2/bgnet.html
 int setUPConnection(char*port,struct addrinfo *servinfo) {
 
 	struct addrinfo hints;
@@ -222,7 +232,7 @@ int setUPConnection(char*port,struct addrinfo *servinfo) {
 	return sockfd;
 
 }
-//from BEEJ GUIDE
+//SOURCE http://beej.us/net2/bgnet.html
 int recvall(int s, char *buf, int *len)
 {
 	int total = 0;        // how many bytes we've sent
@@ -240,18 +250,149 @@ int recvall(int s, char *buf, int *len)
 
 	return n == -1 ? -1 : 0; // return -1 on failure, 0 on success
 }
+int sendall(int s, char *buf, int *len)
+{
+	int total = 0;        // how many bytes we've sent
+	int bytesleft = *len; // how many we have left to send
+	int n;
+
+	while (total < *len) {
+		n = send(s, buf + total, bytesleft, 0);
+		if (n == -1) { break; }
+		total += n;
+		bytesleft -= n;
+	}
+
+	*len = total; // return number actually sent here
+
+	return n == -1 ? -1 : 0; // return -1 on failure, 0 on success
+}
+
+void sendCipherText(int sockfd, char*ciphertext, int plainSize) {
+	int n;
+	n = sendall(sockfd, ciphertext, &plainSize);
+	if (n == -1) {
+		fprintf(stderr, "ERROR sendall ciphertext \n");
+		exit(1);
+	}
+}
+
+
 //
 //only in the child process will the actual encryption take place, 
 //and the ciphertext be written back :
-void childActivity(int sockfd) {
 
-	//end of signal stuff
+void resizeCharArr(char* carr,int size) {
 
+	carr = malloc(size * sizeof(char));
 
+}
+
+int* encryption(char*plainbuffer, char*keybuffer, int plainsize, int keysize) {
+	char* ciphertext;
+	//add 1 for null term
+	ciphertext = malloc(sizeof(char)*plainsize + 1);
+	memset(ciphertext, '\0', sizeof(ciphertext));
+	int *ciphernums;
+
+	ciphernums = malloc(sizeof(int)*plainsize);
+
+	int keysEncrypted;
+	keysEncrypted = 0;
+	int i;
+	int j;
+	int k;
+	j = 0;
+	k = 0;
+	// go through each char of plainbuffer, 'i' is invariant
+	for (i = 0; i < strlen(plainbuffer); i++) {
+		int plainnum;
+		int keynum;
+		int total;			//total= plainchar + keychar
+		int mod;
+		//compare each char of plainbuffer to legalchars
+		while (plainbuffer[i] != legalchars[j] && (j<27)) {
+			
+			j++;
+		}
+		plainnum = j;
+		printf("plainnum is %d\n", plainnum);
+		//compare each char of keybuffer to legalchars
+		while (keybuffer[i] != legalchars[k] && (k<27)) {
+
+			k++;
+		}
+		keynum = k;
+		printf("keynum is %d\n", keynum);
+		total = plainnum + keynum;
+		printf("total of plainnum and keynum is %d\n", total);
+
+		//what will mod be?
+		if (total > 26) {
+			int sub;
+			printf("total: %d is larger then 26\n", total);
+			
+			mod = total - 26;
+		}
+		else {
+			mod = total % 26;
+		}
+		printf("mod is %d\n", mod);
+		ciphernums[i] = mod;
+		
+		// go through each char of legalchars
+
+		//reset our vars
+		j = 0;
+		k = 0;
+	}
+
+	return ciphernums;
+	
+}
+
+char* convertCipherNums(int*ciphernums, int plainSize) {
+	//convert each int of ciphernums to a char
+	char * ciphertext;
+	ciphertext = malloc(sizeof(char)* plainSize);
+	int i;
+	int j;
+	//go thru ciphernums
+	for (i = 0; i < plainSize; i++) {
+		ciphertext[i] = legalchars[ciphernums[i]];
+
+	}
+	return ciphertext;
+}
+
+void childActivity(int sockfd,char*port) {
+	char message[PACKSIZE];
+	memset(message, 0, sizeof message);
+	char * confirm = "otp_enc";
 	int n;
+	char * dynamicChar;
+	int keySize;
 	int plainSize;
-	char buffer[TOTALCHARS];
-	memset(buffer, 0, sizeof buffer);
+	char bufferPlain[TOTALCHARS];
+	char bufferKey[TOTALCHARS];
+	memset(bufferKey, 0, sizeof bufferKey);
+	n = read(sockfd, message, sizeof(message));
+	printf("message %s\n", message);
+	fflush(stdout);
+		//confirm its otp_enc before forking
+	if (strcmp(message, confirm) == 0) {
+		//printf("communicating with the right process\n");
+		//fflush(stdout);
+		n = write(sockfd, confirm, sizeof(confirm));
+	}//ELSE TERMINATE EARLY
+	else {
+		fprintf(stderr, "Error: could not contact otp_enc_d on port %s\n", port );
+		exit(2);
+	}
+
+
+
+	memset(bufferPlain, 0, sizeof bufferPlain);
 	//we now know length of plainsize
 	n = recv(sockfd, &plainSize, 4, 0);
 	if (n == -1) {
@@ -259,24 +400,91 @@ void childActivity(int sockfd) {
 		exit(1);
 	}
 
-	printf("plainSize %d\n", plainSize);
+	//printf("plainSize %d\n", plainSize);
 	
 
 	//need to recv plainsize file
-	n = recvall(sockfd, buffer, &plainSize);
-	printf("strlen(buffer) %d\n", buffer);
+	n = recvall(sockfd, bufferPlain, &plainSize);
+
+	if (n == -1) {
+		fprintf(stderr, "ERRR couldn't send entire plain text\n");
+		exit(1);
+	}
+
+	//printf("buffer %s\n", bufferPlain);
+	//fflush(stdout);
 	if (n == -1) {
 		fprintf(stderr, "ERROR recvall plainsize content\n");
 		exit(1);
 
 	}
-	else {
-		printf("plain file received is %s\n", buffer);
+
+	//receive keysize
+	n = recv(sockfd, &keySize, 4, 0);
+	if (n == -1) {
+		fprintf(stderr, "ERROR recv key size\n");
+		exit(1);
 	}
+
+	//printf("keySize %d\n", keySize);
+	//fflush(stdout);
+
+	//receive keyfile
+	n = recvall(sockfd, bufferKey, &keySize);
 	
+	
+
+	if (n == -1) {
+		fprintf(stderr, "ERROR recvall bufferKey content\n");
+		exit(1);
+	}
+
+
+	int *ciphernums;
+
+
+	//do encryption
+	ciphernums=encryption(bufferPlain, bufferKey, plainSize, keySize);
+	int i;
+	for (i = 0; i < plainSize; i++) {
+		printf("ciphernums[%d]= %d\n", i, ciphernums[i]);
+	}
+	//convert ciphernums to ciphertext
+	printf("\n\n\n\n");
+	fflush(stdout);
+	char *ciphertext;
+	ciphertext = convertCipherNums(ciphernums, plainSize);
+	int j;
+	for (j = 0; j < plainSize; j++) {
+		printf("%c", ciphertext[j]);
+	}
+	printf("\n\n\n\n");
+	fflush(stdout);
+	int cipherSize;
+
+	cipherSize = strlen(ciphertext);
+	printf("cipherSize is %d\n",cipherSize);
+	fflush(stdout);
+
+	//send size of ciphertext
+	n = send(sockfd, &cipherSize, sizeof(cipherSize), 0);
+	if (n == -1) {
+		fprintf(stderr, "ERROR sending cipher size\n");
+		exit(1);
+	}
+
+
+	//send ciphertext
+	sendCipherText(sockfd, ciphertext, plainSize);
+
+	_exit(0);
 }
+
+
+
+
 //from BEEJ GUIDE
-void handleProcesses(int sockfd) {
+void handleProcesses(int sockfd,char*port) {
 	char * confirm = "otp_enc";
 
 	
@@ -288,8 +496,7 @@ void handleProcesses(int sockfd) {
 	
 	numforks = 0;
 	while (1) {
-		char message[PACKSIZE];
-		memset(message, 0, sizeof message);
+
 		int bytesRECV;
 		int bytesSENT;
 		char msg[1024];
@@ -303,49 +510,25 @@ void handleProcesses(int sockfd) {
 		inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
 		printf("server: got connection from %s\n", s);
 		fflush(stdout);
-		int n;
-		n = read(new_fd, message, sizeof(message));
-		printf("message %s\n", message);
-		//confirm its otp_enc before forking
-		if (strcmp(message, confirm) == 0 && (numforks<5)) {
-			//inc numforks
-			numforks++;
-			printf("communicating with the right process\n");
+		numforks++;
+
+		if (numforks > 5) {
+			printf("Too many requests\n");
 			fflush(stdout);
-
-			
-			n = write(new_fd, confirm, sizeof(confirm));
-
-			if (spawn = fork() == 0) {
-				printf("inside child of otp_enc_d\n");
-				fflush(stdout);
-
-				close(sockfd);
-
-				//do stuff
-				childActivity(new_fd);
-
-				_exit(0);
-			}
-			
-			//parent doesn't need this
-			close(new_fd);
-		}
-		else {
-			if (numforks > 5) {
-				printf("Too many requests\n");
-				fflush(stdout);
-				continue;
-			}
-			char * error = "error";
-			int n;
-			n = write(new_fd, error, sizeof(error));
 			continue;
 		}
+			//CHILD PROCESS
+			if (spawn = fork() == 0) {
+				//printf("inside child of otp_enc_d\n");
+				//fflush(stdout);
+				close(sockfd);// child doesn't need the listener
+				//do stuff
+				childActivity(new_fd,port);
+			}
+			//parent doesn't need this
+			close(new_fd);
+	}//END OF WHILE
 
-
-		
-	}
 }
 
 
@@ -381,21 +564,11 @@ int main(int argc, char*argv[]) {
 	}
 
 
-	//initialize signal stuff
-	/*
-	**SIGNAL STUFF
-	*/
-
-	/*
-	** END OF SIGNAL STUFF
-	*
-	*/
-
 
 	sockfd=setUPConnection(argv[1],servinfo );
-	handleProcesses(sockfd);
+	handleProcesses(sockfd, argv[1]);
 
-	//sockfd =bindLoopSockets(servinfo);
+
 
 
 
@@ -407,69 +580,6 @@ int main(int argc, char*argv[]) {
 
 	socklen_t sizeofClientInfo;
 	char buffer[256];
-	//sockaddr_in declarations and inits
-	//struct sockaddr_in serverAddress, clientAddress;
-	//memset((char*)&serverAddress, '\0', sizeof(serverAddress));
-	//portNum = atoi(argv[1]);					//change char into int
-	//serverAddress.sin_family = AF_INET;			//create a network capable socket
-	//serverAddress.sin_port = htons(portNum);
-	//serverAddress.sin_addr.s_addr = INADDR_ANY;
-	//END OF SOCKET INITS
-
-	//sockfd = initSocket();
-
-
-	//serverSocketPrep(sockfd, serverAddress);
-
-
-
-
-
-
-
-
-
-
-	//int listenStatus;
-	//listenStatus = listen(sockfd, 5);
-
-	//server runs forever
-	//while (1) {
-	//	//variable declaration for possible child process
-	//	pid_t spawnPid = -5;
-	//	sizeofClientInfo = sizeof(clientAddress);
-
-	//	//accept incoming connections
-	//	establishedConnectionFD = accept(sockfd, (struct sockaddr *)&clientAddress, &sizeofClientInfo);
-	//	if (establishedConnectionFD < 0) {
-	//		error("ERROR on accept");
-	//	}//successful connection
-	//	//in terms of creating that child process as described above, you may either create with fork
-	//	else {
-
-	//		printf("accept connection successful\n");
-	//		fflush(stdout);
-	//		char message[500];
-	//		memset(message, '\0', sizeof(message));
-	//		int n;
-	//		//try to receive "otp_enc" so we know its the correct program
-	//		char*confirm = "otp_enc";
-	//		n = read(establishedConnectionFD, message, sizeof(message));
-	//		if (strcmp(message, confirm) == 0) {
-	//			printf("This is the right program\n");
-	//			fflush(stdout);
-	//		}
-	//		else {//HANDLES WRONG PROGRAM
-	//			printf("This is the wrong program\n");
-	//			fflush(stdout);
-
-	//		}
-
-	//	}
-
-	//}
-
-
 
 
 }

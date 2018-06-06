@@ -170,11 +170,11 @@ int attemptConnection(struct hostent * server,char* port) {
 	if (sockfd < 0) {
 		error("ERROR creating socket");
 	}
-	printf("socket created\n");
+	//printf("socket created\n");
 
 	
-	printf("port assigned to portNum\n");
-	fflush(stdout);
+	//printf("port assigned to portNum\n");
+	//fflush(stdout);
 
 
 
@@ -227,14 +227,14 @@ int connectToOTP(char*port,struct addrinfo *servinfo) {
 
 	inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),
 		s, sizeof s);
-	printf("client: connecting to %s\n", s);
+	//printf("client: connecting to %s\n", s);
 	return sockfd;
 }
 
 // 's' is socket you want to send to
 // 'buf' is the buffer containing data
 //len is pointer to an int container the number of bytes in buffer
-//beej guide
+//SOURCE http://beej.us/net2/bgnet.html
 int sendall(int s, char *buf, int *len)
 {
 	int total = 0;        // how many bytes we've sent
@@ -252,29 +252,51 @@ int sendall(int s, char *buf, int *len)
 
 	return n == -1 ? -1 : 0; // return -1 on failure, 0 on success
 }
-//SOURCE https://stackoverflow.com/questions/9140409/transfer-integer-over-a-socket-in-c
-int send_int(int num, int fd)
+//SOURCE http://beej.us/net2/bgnet.html
+int recvall(int s, char *buf, int *len)
 {
-	int32_t conv = htonl(num);
-	char *data = (char*)&conv;
-	int left = sizeof(conv);
-	int rc;
-	do {
-		rc = write(fd, data, left);
-		if (rc < 0) {
-			if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
-				// use select() or epoll() to wait for the socket to be writable again
-			}
-			else if (errno != EINTR) {
-				return -1;
-			}
-		}
-		else {
-			data += rc;
-			left -= rc;
-		}
-	} while (left > 0);
-	return 0;
+	int total = 0;        // how many bytes we've sent
+	int bytesleft = *len; // how many we have left to send
+	int n;
+
+	while (total < *len) {
+		n = recv(s, buf + total, bytesleft, 0);
+		if (n == -1) { break; }
+		total += n;
+		bytesleft -= n;
+	}
+
+	*len = total; // return number actually sent here
+
+	return n == -1 ? -1 : 0; // return -1 on failure, 0 on success
+}
+
+//converted from Beej function
+//used write instead of send
+int writeCipherTextToStdout(char*ciphertext, int *cipherSize) {
+	int n;
+	int total = 0;
+	int bytesLeft = *cipherSize;
+	void* newLine = "\n";
+
+	while (total < *cipherSize) {
+		n = write(STDOUT_FILENO, ciphertext, bytesLeft);
+		if (n == -1) { break; }
+		total += n;
+		bytesLeft -= n;
+	}
+	if (write(STDOUT_FILENO, newLine, 1) == -1) {
+		fprintf(stderr, "error writing newline.\n");
+		exit(1);
+	}
+	*cipherSize = total;
+	return n == -1 ? -1 : 0;
+
+	//if (n == -1) {
+	//	fprintf(stderr, "ERROR: couldn't send ciphertext to stdout\n");
+	//	exit(1);
+	//}
+
 }
 
 //"127.0.0.1" localhost
@@ -294,6 +316,8 @@ int main(int argc, char*argv[]) {
 	memset(bufferPlainText, '\0', sizeof(bufferPlainText));
 	char bufferKeyText[TOTALCHARS];
 	memset(bufferKeyText, '\0', sizeof(bufferKeyText));
+	char bufferCipherText[TOTALCHARS];
+	memset(bufferCipherText, '\0', sizeof(bufferCipherText));
 	//END OF initialize buffers
 
 
@@ -305,12 +329,12 @@ int main(int argc, char*argv[]) {
 	keyfile = argv[2];
 	//check plaintext file
 	plaintext_size=checkFile(plaintext,bufferPlainText);
-	printf("bufferPlainText = %s\n", bufferPlainText);
-	printf("strlen(bufferPlainText) = %d\n", strlen(bufferPlainText));
+	//printf("bufferPlainText = %s\n", bufferPlainText);
+	//printf("strlen(bufferPlainText) = %d\n", strlen(bufferPlainText));
 	//check keyfile
 	keytext_size = checkFile(keyfile, bufferKeyText);
-	printf("bufferKeyText = %s\n", bufferKeyText);
-	printf("strlen(bufferKeyText) = %d\n", strlen(bufferKeyText));
+	//printf("bufferKeyText = %s\n", bufferKeyText);
+	//printf("strlen(bufferKeyText) = %d\n", strlen(bufferKeyText));
 
 	//compare keyfile and plaintextfile lengths
 	compareKeyAndPlainText(keytext_size, plaintext_size, keyfile);
@@ -322,18 +346,22 @@ int main(int argc, char*argv[]) {
 	int n;
 
 	char*confirm = "otp_enc";
-	n = write(socketFD, confirm, strlen(confirm));
-
+	//n = write(socketFD, confirm, strlen(confirm));
+	n = send(socketFD, confirm, strlen(confirm), 0);
+	if (n == -1) {
+		fprintf(stderr, "ERROR: could not send confirm\n");
+		exit(2);
+	}
 	char ack[PACKSIZE];
 	memset(ack, 0, sizeof(ack));
-	n = read(socketFD, ack, sizeof(ack));
-
+	//n = read(socketFD, ack, sizeof(ack));
+	n = recv(socketFD, ack, sizeof(ack), 0);
 	if (strcmp(ack, confirm) == 0) {
-		printf("confirmed correct\n");
-		fflush(stdout);
+		//printf("confirmed correct\n");
+		//fflush(stdout);
 	}
 	else {
-		fprintf(stderr, "ERROR: could not contact otp_enc_d\n");
+		fprintf(stderr, "ERROR: could not contact otp_enc_d %s\n", argv[3]);
 		exit(2);
 	}
 
@@ -342,16 +370,57 @@ int main(int argc, char*argv[]) {
 
 	//send size of file to otp_enc_d
 	n = send(socketFD, &plaintext_size, sizeof(plaintext_size), 0);
-	//send_int(plaintext_size, socketFD);
+	if (n == -1) {
+		fprintf(stderr,"ERROR sending plaintext_size\n");
+		exit(1);
+	}
+	
 
-
+	//after sending size of plain, send plain file
 	n = sendall(socketFD, bufferPlainText, &plaintext_size);
+	if (n == -1) {
+		fprintf(stderr, "couldn't send entire plain text\n");
+		exit(1);
+	}
+
+	//send size of key
+	n = send(socketFD, &keytext_size, sizeof(keytext_size), 0);
+	if (n == -1) {
+		fprintf(stderr, "ERROR sending keytext_size\n");
+		exit(1);
+	}
 
 
 
 
+	//send key file
+	n = sendall(socketFD, bufferKeyText, &keytext_size);
+	if (n == -1) {
+		fprintf(stderr, "couldn't send entire key text\n");
+		exit(1);
+	}
 
+	int cipherSize;
+	//recv size of cipher
+	n = recv(socketFD, &cipherSize, 4, 0);
+	if (n == -1) {
+		fprintf(stderr, "couldn't recv entire cipher size\n");
+		exit(1);
+	}
+	/*printf("cipherSize %d\n", cipherSize);*/
+	//recv cipher file
+	n = recvall(socketFD, bufferCipherText, &cipherSize);
+	if (n == -1) {
+		fprintf(stderr, "couldn't recv entire cipher text\n");
+		exit(1);
+	}
+		//printf("cipher text: %s\n", bufferCipherText);
+		//fflush(stdout);
 
+		n=writeCipherTextToStdout(bufferCipherText, &cipherSize);
 
-
+		if (n == -1) {
+			fprintf(stderr, "couldn't write cipher text to STDOUT\n");
+			exit(1);
+		}
 }
