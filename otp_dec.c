@@ -9,31 +9,19 @@
 #include <fcntl.h> //allows files opening, reading, writing
 #include <stdint.h>
 #include <errno.h>
-/*
-*
-*This program connects to otp_enc_d, 
-*and asks it to perform a one-time pad style encryption 
-*as detailed above. 
-* By itself, otp_enc doesn’t do the encryption - otp_end_d does.
-* The syntax of otp_enc is as follows:
-* otp_enc plaintext key port
-*/
+
 #define TOTALCHARS 70002
 #define LOWERASCII 65      //A
 #define HIGHERASCII 90		//Z
 #define SPACEASCII 32		//(space)
 #define PACKSIZE 500
-
-void error(const char *msg) { 
-	perror(msg); exit(0); 
-}
 /***
 *
 *FILE CHECKING STUFF
 *
 */
 
-int checkFile(char * fileName,char*buffer) {
+int checkFile(char * fileName, char*buffer) {
 	FILE * pFile;
 	int plaintextfd;
 	int plaintext_size;
@@ -58,35 +46,32 @@ int checkFile(char * fileName,char*buffer) {
 
 		//skip newline
 		if (c == '\n') {
-			
+
 			fflush(stdout);
 			break;
 		}
 
 		//this COND handles bad chars
 		//if not space or between A-Z
-		if ( (cInt != 32 && cInt != 10) && (cInt < 64 || cInt > 91)) {
+		if ((cInt != 32 && cInt != 10) && (cInt < 64 || cInt > 91)) {
 			fprintf(stderr, "error: input contains bad characters\n");
 			exit(1);
 		}
 
 
 		buffer[charIndex++] = c;
-		
+
 		plaintext_size++;
 	} while (1);
-	//printf("buffer is %s\n", buffer);
-	//fflush(stdout);
-	//printf("buffer length is %d\n", strlen(buffer));
-	//fflush(stdout);
-	//check the file for bad chars 
-	//read in char by char
+
 	fclose(pFile);
 	return plaintext_size;
-	
+
 }
 
-void compareKeyAndPlainText(int keySize, int plainSize,char*keyFile) {
+
+
+void compareKeyAndCipherText(int keySize, int plainSize, char*keyFile) {
 	//if key file is shorter then plaintext, terminate
 	//send error text to stderr, exit(1)
 	if (keySize < plainSize) {
@@ -95,7 +80,6 @@ void compareKeyAndPlainText(int keySize, int plainSize,char*keyFile) {
 	}
 
 }
-
 
 /***
 *
@@ -113,7 +97,7 @@ void *get_in_addr(struct sockaddr *sa)
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int attemptConnection(struct hostent * server,char* port) {
+int attemptConnection(struct hostent * server, char* port) {
 	struct sockaddr_in serverAddress;
 	int sockfd;
 	int portNum;
@@ -135,16 +119,6 @@ int attemptConnection(struct hostent * server,char* port) {
 	if (sockfd < 0) {
 		error("ERROR creating socket");
 	}
-	//printf("socket created\n");
-
-	
-	//printf("port assigned to portNum\n");
-	//fflush(stdout);
-
-
-
-
-
 
 	//attempt connection
 	if (connect(sockfd, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 0) {
@@ -154,7 +128,7 @@ int attemptConnection(struct hostent * server,char* port) {
 
 }
 //returns sock for comm
-int connectToOTP(char*port,struct addrinfo *servinfo) {
+int connectToOTP(char*port, struct addrinfo *servinfo) {
 	int sockfd, numbytes;
 	int rv;
 	struct addrinfo hints;
@@ -236,16 +210,14 @@ int recvall(int s, char *buf, int *len)
 	return n == -1 ? -1 : 0; // return -1 on failure, 0 on success
 }
 
-//converted from Beej function
-//used write instead of send
-int writeCipherTextToStdout(char*ciphertext, int *cipherSize) {
+int writeDecryptTextToStdout(char*decrypttext, int *decryptSize) {
 	int n;
 	int total = 0;
-	int bytesLeft = *cipherSize;
+	int bytesLeft = *decryptSize;
 	void* newLine = "\n";
 
-	while (total < *cipherSize) {
-		n = write(STDOUT_FILENO, ciphertext, bytesLeft);
+	while (total < *decryptSize) {
+		n = write(STDOUT_FILENO, decrypttext, bytesLeft);
 		if (n == -1) { break; }
 		total += n;
 		bytesLeft -= n;
@@ -254,7 +226,7 @@ int writeCipherTextToStdout(char*ciphertext, int *cipherSize) {
 		fprintf(stderr, "error writing newline.\n");
 		exit(1);
 	}
-	*cipherSize = total;
+	*decryptSize = total;
 	return n == -1 ? -1 : 0;
 
 	//if (n == -1) {
@@ -264,87 +236,80 @@ int writeCipherTextToStdout(char*ciphertext, int *cipherSize) {
 
 }
 
-//"127.0.0.1" localhost
+//otp_dec ciphertext1 mykey <port#>
 int main(int argc, char*argv[]) {
-	
+
 	int socketFD;
 	struct addrinfo *servinfo;
-	
+
 	//store server data
 	struct hostent *server;
-	char * plaintext;
+	char * cipherfile;
 	char* keyfile;
-	int plaintext_size;
+	int cipher_size;
 	int keytext_size;
 	//initialize buffers
-	char bufferPlainText[TOTALCHARS];
-	memset(bufferPlainText, '\0', sizeof(bufferPlainText));
-	char bufferKeyText[TOTALCHARS];
-	memset(bufferKeyText, '\0', sizeof(bufferKeyText));
 	char bufferCipherText[TOTALCHARS];
 	memset(bufferCipherText, '\0', sizeof(bufferCipherText));
-	//END OF initialize buffers
+	char bufferKeyText[TOTALCHARS];
+	memset(bufferKeyText, '\0', sizeof(bufferKeyText));
+	char bufferDecryptText[TOTALCHARS];
+	memset(bufferDecryptText, '\0', sizeof(bufferDecryptText));
 
 
-	if (argc < 3) { 
-		fprintf(stderr, "USAGE: %s plaintext key port\n", argv[0]); exit(0); 
+	if (argc < 3) {
+		fprintf(stderr, "USAGE: %s plaintext key port\n", argv[0]); exit(0);
 	} // Check usage & args
 
-	plaintext = argv[1];
+	cipherfile = argv[1];
 	keyfile = argv[2];
-	//check plaintext file
-	plaintext_size=checkFile(plaintext,bufferPlainText);
-	//printf("bufferPlainText = %s\n", bufferPlainText);
-	//printf("strlen(bufferPlainText) = %d\n", strlen(bufferPlainText));
-	//check keyfile
+
+	cipher_size = checkFile(cipherfile, bufferCipherText);
+
 	keytext_size = checkFile(keyfile, bufferKeyText);
-	//printf("bufferKeyText = %s\n", bufferKeyText);
-	//printf("strlen(bufferKeyText) = %d\n", strlen(bufferKeyText));
 
-	//compare keyfile and plaintextfile lengths
-	compareKeyAndPlainText(keytext_size, plaintext_size, keyfile);
+	compareKeyAndCipherText(keytext_size, cipher_size, keyfile);
 
-	//socketFD = attemptConnection(server, argv[3]);
-	socketFD=connectToOTP(argv[3], servinfo);
-
+	socketFD = connectToOTP(argv[3], servinfo);
 
 	int n;
 
-	char*confirm = "otp_enc";
-	//n = write(socketFD, confirm, strlen(confirm));
+	char* confirm = "otp_dec";
+
 	n = send(socketFD, confirm, strlen(confirm), 0);
 	if (n == -1) {
 		fprintf(stderr, "ERROR: could not send confirm\n");
 		exit(2);
 	}
+
+
 	char ack[PACKSIZE];
 	memset(ack, 0, sizeof(ack));
 	//n = read(socketFD, ack, sizeof(ack));
 	n = recv(socketFD, ack, sizeof(ack), 0);
 	if (strcmp(ack, confirm) == 0) {
-		//printf("confirmed correct\n");
-		//fflush(stdout);
+
 	}
 	else {
-		fprintf(stderr, "ERROR: could not contact otp_enc_d %s\n", argv[3]);
+		fprintf(stderr, "ERROR: could not contact otp_dec_d %s\n", argv[3]);
 		exit(2);
 	}
 
 	//send plaintext to otp_enc_d
 	//sendall(socketFD,)
 
-	//send size of file to otp_enc_d
-	n = send(socketFD, &plaintext_size, sizeof(plaintext_size), 0);
+	//send size of cipher file to otp_dec_d
+	n = send(socketFD, &cipher_size, sizeof(cipher_size), 0);
 	if (n == -1) {
-		fprintf(stderr,"ERROR sending plaintext_size\n");
+		fprintf(stderr, "ERROR sending cipher_size\n");
 		exit(1);
 	}
-	
 
-	//after sending size of plain, send plain file
-	n = sendall(socketFD, bufferPlainText, &plaintext_size);
+
+	//after sending size of cipher, send cipher file
+	n = sendall(socketFD, bufferCipherText, &cipher_size);
 	if (n == -1) {
-		fprintf(stderr, "couldn't send entire plain text\n");
+		fprintf(stderr, "couldn't send entire cipher text\n");
 		exit(1);
 	}
 
@@ -365,27 +330,24 @@ int main(int argc, char*argv[]) {
 		exit(1);
 	}
 
-	int cipherSize;
-	//recv size of cipher
-	n = recv(socketFD, &cipherSize, 4, 0);
+	int decryptSize;
+	//recv size of decrypt
+	n = recv(socketFD, &decryptSize, 4, 0);
 	if (n == -1) {
-		fprintf(stderr, "couldn't recv entire cipher size\n");
+		fprintf(stderr, "couldn't recv entire decrypt size\n");
 		exit(1);
 	}
-	/*printf("cipherSize %d\n", cipherSize);*/
-	//recv cipher file
-	n = recvall(socketFD, bufferCipherText, &cipherSize);
+
+	n = recvall(socketFD, bufferDecryptText, &decryptSize);
 	if (n == -1) {
-		fprintf(stderr, "couldn't recv entire cipher text\n");
+		fprintf(stderr, "couldn't recv entire decrypt text\n");
 		exit(1);
 	}
-		//printf("cipher text: %s\n", bufferCipherText);
-		//fflush(stdout);
 
-		n=writeCipherTextToStdout(bufferCipherText, &cipherSize);
+	n = writeDecryptTextToStdout(bufferDecryptText, &decryptSize);
 
-		if (n == -1) {
-			fprintf(stderr, "couldn't write cipher text to STDOUT\n");
-			exit(1);
-		}
+	if (n == -1) {
+		fprintf(stderr, "couldn't write decrypt text to STDOUT\n");
+		exit(1);
+	}
 }
